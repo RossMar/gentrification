@@ -1,0 +1,116 @@
+---
+title: "Gentrified Boston - SML Methods"
+author: "Rebecca Brent"
+output: html_notebook
+---
+```{r, warning=FALSE, message=FALSE}
+#Libraries required
+library(tidyverse)
+library(caret)
+library(nnet)
+library(MASS)
+library(glmnet)
+```
+
+
+
+```{r, message=F,warning=F}
+#load data from github
+suffolk_df<- read_csv("https://raw.githubusercontent.com/erinkeough/DS5500-fall2020-rb-bc-ek-rm/master/census-csv/prop_change_suffolk_labeled.csv")
+
+suffolk_df<-read_csv("census-csv/prop_change_suffolk_labeled.csv")
+
+```
+
+```{r}
+#Create Train-Test Split  
+set.seed(1)
+trainIndex <- createDataPartition(suffolk_df$Gent_Label, p = .8,
+                                  list = FALSE,
+                                  times = 1)
+imbal_train <- suffolk_df[trainIndex,]
+imbal_valid <- suffolk_df[-trainIndex,]
+
+# Resample the train data to account for class imbalance
+#ctrl <- trainControl(method = "repeatedcv", repeats = 5,
+#                     classProbs = TRUE,
+#                     summaryFunction = twoClassSummary,
+#                     sampling = "rose")
+#set.seed(1)
+#rose_inside <- train(Gent_Label~ .-Census.Tract.Code, 
+#                     data = imbal_train,
+#                     method = "glm",
+#                     family="binomial",
+#                     metric = "ROC",
+#                     trControl = ctrl)
+#inside_resampling <- resamples(rose_inside)
+#y_pred <- predict(rose_inside, data=imbal_valid)
+#calc_acc(actual = default_tst$default,
+#         predicted = predict(default_glm_mod, newdata = default_tst))
+```
+
+
+## Linear Discriminant Analysis
+
+### Fit with all predictors
+
+```{r}
+lda_cvfit<-lda(Gent_Label~.-Census.Tract.Code, data = suffolk_df, cv=T)
+lda_cvpred<-predict(lda_cvfit, suffolk_df)
+lda_correct<-(lda_cvpred$class==suffolk_df$Gent_Label)
+
+ROC_lda<-simple_roc(lda_correct, lda_cvpred$posterior[,1])
+ROC_lda<-pROC::roc(response=(suffolk_df$Gent_Label=="Eligible"), predictor=lda_cvpred$posterior[,1])
+acc_full<-mean(lda_cvpred$class==suffolk_df$Gent_Label)
+
+ROC_lda<-pROC::roc(response=(suffolk_df$Gent_Label=="Eligible"), predictor=lda_pred_intu$posterior[,1])
+
+```
+
+SCRATCH WORK
+```{r}
+plot(lda_intu, panel=panel.lda)
+
+suff_data_matrix<-model.matrix(Gent_Label~.-Data.Measurement.Year-Census.Tract.Code-Gent_Label-1,data = suffolk_df)
+response<-suffolk_df$Gent_Label
+lasso<-glmnet(suff_data_matrix, response, alpha = 1, family="multinomial", type.multinomial = "grouped")
+cv.lasso<-cv.glmnet(suff_data_matrix, response, alpha=1, family="multinomial")
+
+lbs_fun <- function(fit, offset_x=1, ...) {
+  L <- length(fit$lambda)
+  x <- log(fit$lambda[L])+ offset_x
+  
+  labs <- lasso[["beta"]][["Eligible"]]@Dimnames[[1]]
+  return(list(x,labs))
+}
+lbls<-lbs_fun(lasso)
+plot(lasso, xvar = "lambda", label=T, type.coef = "Eligible")
+text(lbls[[1]], ,labels = lbls[[2]])
+abline(v=log(cv.lasso$lambda.min), col="red", lty=2)
+plot(cv.lasso)
+
+```
+
+
+
+
+### Fit with intuitive subset
+
+Chosen by examining PCA and inuition
+
+```{r}
+suff_intu<-suffolk_df%>%dplyr::select(prop.change.housing.renter.occupied.householder.race.White,
+                                      prop.change.housing.owner.occupied.householder.race.Other,
+                                      prop.change.housing.owner.occupied.householder.race.Black,
+                               Gent_Label)
+
+lda_intu<-lda(Gent_Label~., data = suff_intu, cv=T)
+lda_pred_intu<-predict(lda_intu, suffolk_df)
+acc_intu<-mean(lda_pred_intu$class==suffolk_df$Gent_Label)
+
+```
+
+
+
+
+
